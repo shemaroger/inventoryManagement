@@ -1,0 +1,1 @@
+ALTER TABLE purchase_orders ADD COLUMN payment_type VARCHAR(20) NOT NULL DEFAULT 'CREDIT';
