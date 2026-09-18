@@ -5,6 +5,12 @@ spring:
   application:
     name: tai-backend
 
+  # Local, git-ignored overrides (mail credentials, etc.) that don't depend on the launching
+  # shell having sourced any profile file — works the same whether started from a terminal,
+  # an IDE run button, or a task runner. See application-local.yaml.example for the template.
+  config:
+    import: "optional:file:./application-local.yaml"
+
   mvc:
     throw-exception-if-no-handler-found: true
   web:
@@ -35,7 +41,34 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
 
+  mail:
+    host: ${EMAIL_HOST:smtp.gmail.com}
+    port: ${EMAIL_PORT:587}
+    username: ${EMAIL_USERNAME:}
+    password: ${EMAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+          ssl:
+            trust: smtp.gmail.com
+          connectiontimeout: 10000
+          timeout: 10000
+          writetimeout: 10000
+        transport:
+          protocol: smtp
+    default-encoding: UTF-8
+
 app:
+  mail:
+    from: ${EMAIL_USERNAME:no-reply@tai.local}
+  otp:
+    length: 6
+    expiry-minutes: 5
+    max-attempts: 5
   upload:
     base-path: ${UPLOAD_BASE_PATH:./uploads/products}
   anomaly:
@@ -54,3 +87,6 @@ logging:
   level:
     com.company.tai: INFO
     org.springframework.security: INFO
+    # Expected noise: a custom AuthenticationProvider bean is configured intentionally
+    # (see SecurityConfig), so this warning about it fires on every startup.
+    org.springframework.security.config.annotation.authentication.configuration.InitializeUserDetailsBeanManagerConfigurer: ERROR

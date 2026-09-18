@@ -2,6 +2,7 @@ package com.company.tai.common.service;
 
 import com.company.tai.common.entity.AuditLog;
 import com.company.tai.common.repository.AuditLogRepository;
+import com.company.tai.user.entity.User;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
@@ -33,10 +34,13 @@ public class AuditService {
     }
 
     private Long currentUserId() {
-        // Actor is resolved by email→id lookup in the caller where needed;
-        // here we just don't have direct access to UserRepository to avoid a circular
-        // dependency, so callers pass the id explicitly via the overload below if known.
-        return null;
+        // The JWT principal set by JwtAuthFilter is the User entity itself (it implements
+        // UserDetails), so the actor id can be read straight off it with no extra lookup.
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated() || !(auth.getPrincipal() instanceof User user)) {
+            return null;
+        }
+        return user.getId();
     }
 
     private String currentIp() {

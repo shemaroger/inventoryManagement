@@ -47,8 +47,8 @@ public class PurchaseOrderService {
     // toDto() lazily loads po.getLines() and po.getSupplier()/getWarehouse() after that point.
     // Without this, both throw LazyInitializationException ("no session").
     @Transactional(readOnly = true)
-    public Page<PurchaseOrderDto> search(Long supplierId, PurchaseOrderStatus status, Pageable pageable) {
-        return purchaseOrderRepository.search(supplierId, status, pageable).map(this::toDto);
+    public Page<PurchaseOrderDto> search(Long supplierId, PurchaseOrderStatus status, String searchText, Pageable pageable) {
+        return purchaseOrderRepository.search(supplierId, status, searchText, pageable).map(this::toDto);
     }
 
     @Transactional(readOnly = true)
@@ -173,7 +173,10 @@ public class PurchaseOrderService {
             // Reuses the existing stock-adjustment machinery rather than duplicating the
             // quantity math; the PO reference is carried in the adjustment's reason field
             // since a dedicated GRN audit table would just duplicate what's already here.
-            stockService.applyAdjustment(new StockAdjustmentRequest(
+            // Uses the no-auto-ledger-posting variant since journalService
+            // .postPurchaseReceiptEntry() below already posts the accounting effect
+            // (Inventory/Input VAT/Accounts Payable) for this exact stock movement.
+            stockService.applyAdjustmentWithoutLedgerPosting(new StockAdjustmentRequest(
                     line.getProduct().getId(),
                     po.getWarehouse().getId(),
                     AdjustmentType.INCREASE,

@@ -48,6 +48,14 @@ public class RoleService {
     @Transactional
     public RoleDto updateRole(Long id, RoleRequest request) {
         Role role = findOrThrow(id);
+        if (!role.getName().equalsIgnoreCase(request.name())) {
+            roleRepository.findByName(request.name()).ifPresent(existing -> {
+                throw new BusinessRuleException("Role already exists: " + request.name());
+            });
+        }
+        if (Set.of("ADMIN", "MANAGER", "STAFF").contains(role.getName()) && !role.getName().equals(request.name())) {
+            throw new BusinessRuleException("Cannot rename a seeded system role: " + role.getName());
+        }
         role.setName(request.name());
         role.setDescription(request.description());
         return toDto(role);

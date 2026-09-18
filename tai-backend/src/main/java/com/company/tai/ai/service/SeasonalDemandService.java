@@ -134,11 +134,21 @@ public class SeasonalDemandService {
 
     public int resolveTargetBucket(String period, Integer targetMonth, Integer targetQuarter, java.time.LocalDate targetDate) {
         if ("quarter".equals(period)) {
-            if (targetQuarter != null) return targetQuarter;
+            if (targetQuarter != null) {
+                if (targetQuarter < 1 || targetQuarter > 4) {
+                    throw new BusinessRuleException("targetQuarter must be between 1 and 4");
+                }
+                return targetQuarter;
+            }
             if (targetDate != null) return (targetDate.getMonthValue() - 1) / 3 + 1;
             throw new BusinessRuleException("targetQuarter or targetDate is required when period=quarter");
         } else {
-            if (targetMonth != null) return targetMonth;
+            if (targetMonth != null) {
+                if (targetMonth < 1 || targetMonth > 12) {
+                    throw new BusinessRuleException("targetMonth must be between 1 and 12");
+                }
+                return targetMonth;
+            }
             if (targetDate != null) return targetDate.getMonthValue();
             throw new BusinessRuleException("targetMonth or targetDate is required when period=month");
         }

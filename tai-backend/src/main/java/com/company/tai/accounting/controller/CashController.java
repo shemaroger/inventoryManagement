@@ -26,7 +26,7 @@ public class CashController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         Pageable pageable = PageRequest.of(page, size);
-        return ApiResponse.ok(journalService.search(null, JournalSourceType.EXPENSE, null, null, pageable));
+        return ApiResponse.ok(journalService.search(null, JournalSourceType.EXPENSE, null, null, null, pageable));
     }
 
     @PostMapping("/expenditures")

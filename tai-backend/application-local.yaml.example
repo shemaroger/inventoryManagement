@@ -1,0 +1,8 @@
+# Copy this file to application-local.yaml (git-ignored) in the project root and fill in real
+# values. Spring Boot loads it automatically on startup via spring.config.import in
+# application.yaml — no environment variables or shell profile sourcing required, so it works
+# the same whether you start the app from a terminal, an IDE run button, or a task runner.
+spring:
+  mail:
+    username: your-gmail-address@gmail.com
+    password: your-16-character-gmail-app-password

@@ -1,5 +1,6 @@
 package com.company.tai.inventory.service;
 
+import com.company.tai.accounting.service.JournalService;
 import com.company.tai.common.exception.BusinessRuleException;
 import com.company.tai.common.exception.ResourceNotFoundException;
 import com.company.tai.inventory.dto.StockAdjustmentDto;
@@ -34,6 +35,7 @@ public class StockService {
     private final ProductRepository productRepository;
     private final WarehouseRepository warehouseRepository;
     private final UserRepository userRepository;
+    private final JournalService journalService;
 
     public List<StockItemDto> getStockForWarehouse(Long warehouseId) {
         return stockItemRepository.findByWarehouseId(warehouseId).stream().map(this::toDto).toList();
@@ -51,15 +53,30 @@ public class StockService {
         return stockAdjustmentRepository.search(productId, warehouseId, pageable).map(this::toAdjustmentDto);
     }
 
+    // The public path — used by POST /api/stock/adjustments and anywhere else calling this
+    // without already handling the accounting effect itself. Auto-posts to the ledger.
     @Transactional
     public StockItemDto applyAdjustment(StockAdjustmentRequest request) {
+        AdjustmentResult result = recordAdjustment(request);
+        journalService.postStockAdjustmentEntry(result.adjustment());
+        return toDto(result.stockItem());
+    }
+
+    // Used by SaleService.complete() and PurchaseOrderService.receive(), which already post
+    // their own richer compound journal entries (revenue/COGS/VAT, Inventory/Accounts Payable)
+    // covering the exact same stock movement — auto-posting here too would double it.
+    @Transactional
+    public StockItemDto applyAdjustmentWithoutLedgerPosting(StockAdjustmentRequest request) {
+        return toDto(recordAdjustment(request).stockItem());
+    }
+
+    private AdjustmentResult recordAdjustment(StockAdjustmentRequest request) {
         Product product = productRepository.findById(request.productId())
                 .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + request.productId()));
         Warehouse warehouse = warehouseRepository.findById(request.warehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + request.warehouseId()));
 
-        StockItem stockItem = recordAdjustment(product, warehouse, request.adjustmentType(), request.quantity(), request.reason());
-        return toDto(stockItem);
+        return recordAdjustment(product, warehouse, request.adjustmentType(), request.quantity(), request.reason());
     }
 
     @Transactional
@@ -75,16 +92,18 @@ public class StockService {
         Warehouse destination = warehouseRepository.findById(request.destinationWarehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + request.destinationWarehouseId()));
 
-        StockItem sourceItem = recordAdjustment(product, source, AdjustmentType.TRANSFER_OUT, request.quantity(), request.reason());
-        StockItem destinationItem = recordAdjustment(product, destination, AdjustmentType.TRANSFER_IN, request.quantity(), request.reason());
+        StockItem sourceItem = recordAdjustment(product, source, AdjustmentType.TRANSFER_OUT, request.quantity(), request.reason()).stockItem();
+        StockItem destinationItem = recordAdjustment(product, destination, AdjustmentType.TRANSFER_IN, request.quantity(), request.reason()).stockItem();
 
         return new StockTransferResult(toDto(sourceItem), toDto(destinationItem));
     }
 
+    private record AdjustmentResult(StockItem stockItem, StockAdjustment adjustment) {}
+
     // Shared by single adjustments and transfers (a transfer is just a paired OUT+IN,
     // both going through this same insufficient-stock check and audit-record write,
     // inside one @Transactional method so both sides commit or neither does).
-    private StockItem recordAdjustment(Product product, Warehouse warehouse, AdjustmentType type, BigDecimal quantity, String reason) {
+    private AdjustmentResult recordAdjustment(Product product, Warehouse warehouse, AdjustmentType type, BigDecimal quantity, String reason) {
         StockItem stockItem = stockItemRepository.findByProductIdAndWarehouseId(product.getId(), warehouse.getId())
                 .orElseGet(() -> StockItem.builder()
                         .product(product)
@@ -115,7 +134,7 @@ public class StockService {
                 .build();
         stockAdjustmentRepository.save(adjustment);
 
-        return stockItem;
+        return new AdjustmentResult(stockItem, adjustment);
     }
 
     private User currentUser() {

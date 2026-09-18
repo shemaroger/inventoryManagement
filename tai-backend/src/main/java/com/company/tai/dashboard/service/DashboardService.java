@@ -159,14 +159,14 @@ public class DashboardService {
                         sa.getCreatedAt()
                 )));
 
-        saleRepository.search(null, SaleStatus.COMPLETED, PageRequest.of(0, limit)).forEach(sale ->
+        saleRepository.search(null, SaleStatus.COMPLETED, null, PageRequest.of(0, limit)).forEach(sale ->
                 activity.add(new RecentActivityDto(
                         "SALE",
                         "Sale #" + sale.getId() + " completed for " + sale.getCustomer().getName(),
                         sale.getUpdatedAt()
                 )));
 
-        purchaseOrderRepository.search(null, null, PageRequest.of(0, limit)).stream()
+        purchaseOrderRepository.search(null, null, null, PageRequest.of(0, limit)).stream()
                 .filter(po -> po.getStatus() == PurchaseOrderStatus.RECEIVED || po.getStatus() == PurchaseOrderStatus.PARTIALLY_RECEIVED)
                 .forEach(po -> activity.add(new RecentActivityDto(
                         "PURCHASE",

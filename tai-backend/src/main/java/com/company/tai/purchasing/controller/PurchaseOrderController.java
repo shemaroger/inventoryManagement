@@ -25,11 +25,12 @@ public class PurchaseOrderController {
     public ApiResponse<Page<PurchaseOrderDto>> search(
             @RequestParam(required = false) Long supplierId,
             @RequestParam(required = false) PurchaseOrderStatus status,
+            @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         Pageable pageable = PageRequest.of(page, size);
-        return ApiResponse.ok(purchaseOrderService.search(supplierId, status, pageable));
+        return ApiResponse.ok(purchaseOrderService.search(supplierId, status, search, pageable));
     }
 
     @GetMapping("/{id}")

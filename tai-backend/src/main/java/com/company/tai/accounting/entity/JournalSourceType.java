@@ -6,5 +6,6 @@ public enum JournalSourceType {
     PURCHASE,
     PAYMENT,
     EXPENSE,
-    ADJUSTMENT
+    ADJUSTMENT,
+    CLOSING
 }

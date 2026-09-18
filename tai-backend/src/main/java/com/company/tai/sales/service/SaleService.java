@@ -46,8 +46,8 @@ public class SaleService {
     // PurchaseOrderService.search()/getById() — toDto() touches sale.getLines() after the
     // repository call returns.
     @Transactional(readOnly = true)
-    public Page<SaleDto> search(Long customerId, SaleStatus status, Pageable pageable) {
-        return saleRepository.search(customerId, status, pageable).map(this::toDto);
+    public Page<SaleDto> search(Long customerId, SaleStatus status, String searchText, Pageable pageable) {
+        return saleRepository.search(customerId, status, searchText, pageable).map(this::toDto);
     }
 
     @Transactional(readOnly = true)
@@ -148,8 +148,10 @@ public class SaleService {
         for (SaleLine line : sale.getLines()) {
             // Reuses StockService's existing insufficient-stock guard completely — it already
             // reports exactly which product/warehouse came up short, so no need to duplicate
-            // that check here.
-            stockService.applyAdjustment(new StockAdjustmentRequest(
+            // that check here. Uses the no-auto-ledger-posting variant since journalService
+            // .postSaleEntry() below already posts the full accounting effect (Revenue/COGS/
+            // VAT/Inventory) for this exact stock movement — auto-posting here too would double it.
+            stockService.applyAdjustmentWithoutLedgerPosting(new StockAdjustmentRequest(
                     line.getProduct().getId(),
                     sale.getWarehouse().getId(),
                     AdjustmentType.DECREASE,
@@ -192,7 +194,10 @@ public class SaleService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 
-    private BigDecimal grandTotal(Sale sale) {
+    // Exposed for SalePaymentService's overpayment guard — same VAT-inclusive figure used for
+    // the credit-limit check and Customer.currentBalance above, so "balance owed" on a sale
+    // always means the same number everywhere.
+    public BigDecimal grandTotal(Sale sale) {
         BigDecimal subtotal = saleTotal(sale);
         return subtotal.add(VatConstants.vatOn(subtotal));
     }

@@ -6,10 +6,13 @@ import com.company.tai.accounting.entity.AccountType;
 import com.company.tai.accounting.entity.JournalEntry;
 import com.company.tai.accounting.entity.JournalEntryLine;
 import com.company.tai.accounting.entity.JournalSourceType;
+import com.company.tai.accounting.repository.JournalEntryLineRepository;
 import com.company.tai.accounting.repository.JournalEntryRepository;
 import com.company.tai.common.exception.BusinessRuleException;
 import com.company.tai.common.exception.ResourceNotFoundException;
 import com.company.tai.common.tax.VatConstants;
+import com.company.tai.inventory.entity.AdjustmentType;
+import com.company.tai.inventory.entity.StockAdjustment;
 import com.company.tai.purchasing.entity.PurchaseOrder;
 import com.company.tai.purchasing.entity.PurchasePaymentType;
 import com.company.tai.purchasing.entity.SupplierPayment;
@@ -48,14 +51,24 @@ public class JournalService {
     private static final String VAT_PAYABLE = "2100";
     private static final String SALES_REVENUE = "4000";
     private static final String COST_OF_GOODS_SOLD = "5000";
+    private static final String INVENTORY_SHRINKAGE = "5200";
+    private static final String RETAINED_EARNINGS = "3100";
+
+    // These two adjustment types move stock between warehouses but never change the total
+    // quantity Mapleco owns — so they have zero net accounting effect and are never posted.
+    private static final java.util.Set<AdjustmentType> NO_LEDGER_EFFECT =
+            java.util.Set.of(AdjustmentType.TRANSFER_IN, AdjustmentType.TRANSFER_OUT);
+    private static final java.util.Set<AdjustmentType> INCREASING_TYPES =
+            java.util.Set.of(AdjustmentType.INCREASE, AdjustmentType.RECOUNT);
 
     private final JournalEntryRepository journalEntryRepository;
+    private final JournalEntryLineRepository journalEntryLineRepository;
     private final AccountService accountService;
     private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
-    public Page<JournalEntryDto> search(Long accountId, JournalSourceType sourceType, LocalDate startDate, LocalDate endDate, Pageable pageable) {
-        return journalEntryRepository.search(accountId, sourceType, startDate, endDate, pageable).map(this::toDto);
+    public Page<JournalEntryDto> search(Long accountId, JournalSourceType sourceType, LocalDate startDate, LocalDate endDate, String searchText, Pageable pageable) {
+        return journalEntryRepository.search(accountId, sourceType, startDate, endDate, searchText, pageable).map(this::toDto);
     }
 
     @Transactional(readOnly = true)
@@ -82,6 +95,10 @@ public class JournalService {
             throw new BusinessRuleException("Account " + expenseAccount.getCode() + " (" + expenseAccount.getName()
                     + ") is not an EXPENSE account");
         }
+        if (!expenseAccount.isActive()) {
+            throw new BusinessRuleException("Account " + expenseAccount.getCode() + " (" + expenseAccount.getName()
+                    + ") is inactive and cannot be posted to");
+        }
         Account sourceAccount = accountService.findByCode("BANK".equalsIgnoreCase(request.paymentSource()) ? BANK : CASH);
 
         List<JournalEntryLine> lines = List.of(
@@ -90,6 +107,58 @@ public class JournalService {
         );
         JournalEntry entry = persistBalanced(request.date(), request.description(), null, JournalSourceType.EXPENSE, null, lines);
         return toDto(entry);
+    }
+
+    // Period-end closing: zeroes every Revenue/Expense account's movement for the period into
+    // Retained Earnings, so "current earnings" becomes a real posted balance instead of a live
+    // recomputation — this is what ReportService.balanceSheet()'s "currentEarnings" line
+    // approximates on the fly for periods that haven't been closed yet. Idempotent: re-running
+    // this for an already-closed period is rejected rather than double-posting.
+    @Transactional
+    public JournalEntryDto closePeriod(LocalDate startDate, LocalDate endDate) {
+        String reference = "Period close " + startDate + " to " + endDate;
+        if (journalEntryRepository.existsByReference(reference)) {
+            throw new BusinessRuleException("Period " + startDate + " to " + endDate + " has already been closed");
+        }
+
+        List<JournalEntryLine> lines = new ArrayList<>();
+        BigDecimal netIncome = BigDecimal.ZERO;
+
+        for (Account account : accountService.listByType(AccountType.REVENUE)) {
+            BigDecimal balance = accountPeriodBalance(account.getId(), startDate, endDate, false);
+            if (balance.compareTo(BigDecimal.ZERO) == 0) continue;
+            lines.add(balance.compareTo(BigDecimal.ZERO) > 0 ? debitLine(account, balance) : creditLine(account, balance.abs()));
+            netIncome = netIncome.add(balance);
+        }
+        for (Account account : accountService.listByType(AccountType.EXPENSE)) {
+            BigDecimal balance = accountPeriodBalance(account.getId(), startDate, endDate, true);
+            if (balance.compareTo(BigDecimal.ZERO) == 0) continue;
+            lines.add(balance.compareTo(BigDecimal.ZERO) > 0 ? creditLine(account, balance) : debitLine(account, balance.abs()));
+            netIncome = netIncome.subtract(balance);
+        }
+
+        if (lines.isEmpty()) {
+            throw new BusinessRuleException("No Revenue or Expense activity to close for " + startDate + " to " + endDate);
+        }
+
+        Account retainedEarnings = accountService.findByCode(RETAINED_EARNINGS);
+        if (netIncome.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(creditLine(retainedEarnings, netIncome));
+        } else if (netIncome.compareTo(BigDecimal.ZERO) < 0) {
+            lines.add(debitLine(retainedEarnings, netIncome.abs()));
+        }
+
+        JournalEntry entry = persistBalanced(endDate,
+                "Period close " + startDate + " to " + endDate + " (net income " + netIncome + ")",
+                reference, JournalSourceType.CLOSING, null, lines);
+        return toDto(entry);
+    }
+
+    private BigDecimal accountPeriodBalance(Long accountId, LocalDate startDate, LocalDate endDate, boolean debitNormal) {
+        List<JournalEntryLine> lines = journalEntryLineRepository.findByAccountAndDateRange(accountId, startDate, endDate);
+        BigDecimal totalDebit = lines.stream().map(JournalEntryLine::getDebitAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalCredit = lines.stream().map(JournalEntryLine::getCreditAmount).reduce(BigDecimal.ZERO, BigDecimal::add);
+        return debitNormal ? totalDebit.subtract(totalCredit) : totalCredit.subtract(totalDebit);
     }
 
     // Debit Cash/AR for the sale total, credit Sales Revenue; separately debit COGS and credit
@@ -151,6 +220,34 @@ public class JournalService {
                 JournalSourceType.PURCHASE, po.getId(), lines);
     }
 
+    // Covers every stock movement NOT already accounted for by a Sale completion or a PO
+    // receipt — DAMAGE, LOST, RECOUNT, and ad-hoc manual corrections made via
+    // POST /api/stock/adjustments. Without this, those movements change StockItem.quantity
+    // (and therefore the Dashboard's/Analytics' stock-value figures) with no matching ledger
+    // entry, silently drifting Inventory's book balance away from real stock value. Transfers
+    // are deliberately excluded — moving stock between warehouses doesn't change how much
+    // Mapleco owns in total, so there is nothing to post.
+    public void postStockAdjustmentEntry(StockAdjustment adjustment) {
+        if (NO_LEDGER_EFFECT.contains(adjustment.getAdjustmentType())) return;
+
+        BigDecimal value = adjustment.getQuantity().multiply(adjustment.getProduct().getCostPrice());
+        if (value.compareTo(BigDecimal.ZERO) <= 0) return;
+
+        Account inventoryAccount = accountService.findByCode(INVENTORY);
+        Account shrinkageAccount = accountService.findByCode(INVENTORY_SHRINKAGE);
+        boolean increasing = INCREASING_TYPES.contains(adjustment.getAdjustmentType());
+
+        List<JournalEntryLine> lines = increasing
+                ? List.of(debitLine(inventoryAccount, value), creditLine(shrinkageAccount, value))
+                : List.of(debitLine(shrinkageAccount, value), creditLine(inventoryAccount, value));
+
+        String description = adjustment.getAdjustmentType() + " — " + adjustment.getProduct().getName()
+                + " (" + adjustment.getWarehouse().getName() + ")"
+                + (adjustment.getReason() != null ? ": " + adjustment.getReason() : "");
+
+        persistBalanced(LocalDate.now(), description, null, JournalSourceType.ADJUSTMENT, adjustment.getId(), lines);
+    }
+
     // Only meaningful for a CREDIT sale — a CASH sale already recognized the full amount to
     // Cash at completion, so there is no Accounts Receivable balance left to clear.
     public void postSalePaymentEntry(SalePayment payment) {
@@ -209,6 +306,10 @@ public class JournalService {
                 throw new BusinessRuleException("Each journal entry line must have exactly one of debit or credit set (account id " + req.accountId() + ")");
             }
             Account account = accountService.findOrThrow(req.accountId());
+            if (!account.isActive()) {
+                throw new BusinessRuleException("Account " + account.getCode() + " (" + account.getName()
+                        + ") is inactive and cannot be posted to");
+            }
             lines.add(JournalEntryLine.builder()
                     .account(account)
                     .debitAmount(req.debitAmount())

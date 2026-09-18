@@ -36,8 +36,29 @@ public class CategoryService {
     public CategoryDto update(Long id, CategoryRequest request) {
         Category category = findOrThrow(id);
         category.setName(request.name());
-        category.setParent(request.parentId() != null ? findOrThrow(request.parentId()) : null);
+        if (request.parentId() != null) {
+            if (request.parentId().equals(id)) {
+                throw new BusinessRuleException("A category cannot be its own parent");
+            }
+            Category parent = findOrThrow(request.parentId());
+            assertNoCycle(id, parent);
+            category.setParent(parent);
+        } else {
+            category.setParent(null);
+        }
         return toDto(category);
+    }
+
+    // Walks the candidate parent's ancestor chain to make sure `id` doesn't appear in it —
+    // otherwise setting `parent` on `id` would create a cycle (e.g. A -> B -> A).
+    private void assertNoCycle(Long id, Category candidateParent) {
+        Category current = candidateParent;
+        while (current != null) {
+            if (current.getId().equals(id)) {
+                throw new BusinessRuleException("Cannot set parent: this would create a circular category hierarchy");
+            }
+            current = current.getParent();
+        }
     }
 
     @Transactional

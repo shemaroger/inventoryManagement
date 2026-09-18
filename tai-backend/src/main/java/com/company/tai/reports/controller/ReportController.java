@@ -2,6 +2,7 @@ package com.company.tai.reports.controller;
 
 import com.company.tai.common.dto.ApiResponse;
 import com.company.tai.reports.dto.*;
+import com.company.tai.reports.service.OwnerReportService;
 import com.company.tai.reports.service.ReportService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
@@ -20,6 +21,16 @@ import java.time.LocalDate;
 public class ReportController {
 
     private final ReportService reportService;
+    private final OwnerReportService ownerReportService;
+
+    @GetMapping("/owner-summary")
+    public ApiResponse<OwnerReportDto> ownerSummary(
+            @RequestParam(required = false) LocalDate startDate,
+            @RequestParam(required = false) LocalDate endDate) {
+        LocalDate effectiveEnd = endDate != null ? endDate : LocalDate.now();
+        LocalDate effectiveStart = startDate != null ? startDate : effectiveEnd.withDayOfMonth(1);
+        return ApiResponse.ok(ownerReportService.generate(effectiveStart, effectiveEnd));
+    }
 
     @GetMapping("/daily-sales")
     public ApiResponse<DailySalesReportDto> dailySales(@RequestParam(required = false) LocalDate date) {

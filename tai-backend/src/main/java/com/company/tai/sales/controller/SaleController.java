@@ -25,11 +25,12 @@ public class SaleController {
     public ApiResponse<Page<SaleDto>> search(
             @RequestParam(required = false) Long customerId,
             @RequestParam(required = false) SaleStatus status,
+            @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
 
         Pageable pageable = PageRequest.of(page, size);
-        return ApiResponse.ok(saleService.search(customerId, status, pageable));
+        return ApiResponse.ok(saleService.search(customerId, status, search, pageable));
     }
 
     @GetMapping("/{id}")
