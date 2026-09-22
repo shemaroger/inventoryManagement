@@ -87,6 +87,5 @@ logging:
   level:
     com.company.tai: INFO
     org.springframework.security: INFO
-    # Expected noise: a custom AuthenticationProvider bean is configured intentionally
-    # (see SecurityConfig), so this warning about it fires on every startup.
+    
     org.springframework.security.config.annotation.authentication.configuration.InitializeUserDetailsBeanManagerConfigurer: ERROR

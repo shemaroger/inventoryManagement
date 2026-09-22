@@ -1,17 +1,27 @@
 package com.company.tai.analytics.controller;
 
-import com.company.tai.analytics.dto.*;
-import com.company.tai.analytics.service.AnalyticsService;
-import com.company.tai.common.dto.ApiResponse;
-import lombok.RequiredArgsConstructor;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDate;
+import com.company.tai.analytics.dto.CustomerPerformanceReportDto;
+import com.company.tai.analytics.dto.InventoryTurnoverReportDto;
+import com.company.tai.analytics.dto.ProfitByCategoryReportDto;
+import com.company.tai.analytics.dto.ProfitByProductReportDto;
+import com.company.tai.analytics.dto.SalesAnalyticsReportDto;
+import com.company.tai.analytics.dto.SupplierPerformanceReportDto;
+import com.company.tai.analytics.service.AnalyticsService;
+import com.company.tai.common.dto.ApiResponse;
+
+import lombok.RequiredArgsConstructor;
 
 @RestController
 @RequestMapping("/api/analytics")
@@ -120,6 +130,8 @@ public class AnalyticsController {
         }
         return value;
     }
+
+    
 
     private ResponseEntity<byte[]> csvResponse(String csv, String filename) {
         return ResponseEntity.ok()
